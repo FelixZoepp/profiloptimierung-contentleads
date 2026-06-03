@@ -49,7 +49,40 @@ Eine Web-App: Du gibst **Name**, **Unternehmen** und das **Onboarding-Transkript
 
 **Format-Grenzen (wichtig):** Eigene Größen gehen mit `gpt-image-2`, aber nur mit Seitenverhältnis **bis 3:1** und ausreichend Pixeln. Kacheln (1:1) und Im-Fokus (1.91:1) klappen exakt. Das **Personen-Banner (1584×396 = 4:1)** liegt knapp außerhalb — die App erzeugt es auf max. 3:1, den finalen 4:1-Zuschnitt machst du in Canva. Kosten: ca. $0.02–0.19 pro Bild.
 
-## Schritt 5 (optional) — Supabase zum Speichern
+## Schritt 5 (optional) — Google Drive einrichten
+
+Die App kann das fertige Profil als .docx direkt in den passenden Kundenordner in Google Drive speichern.
+
+### Google Cloud vorbereiten
+
+1. **Google Cloud Projekt** anlegen (oder bestehendes nutzen): https://console.cloud.google.com
+2. **Google Drive API** aktivieren: APIs & Services → Library → "Google Drive API" suchen → Enable.
+3. **Service Account** erstellen: IAM & Admin → Service Accounts → Create. Name z. B. "profil-bot". Keine besonderen Rollen nötig.
+4. **JSON-Key** erzeugen: Auf den Service Account klicken → Keys → Add Key → Create new key → JSON. Die Datei wird heruntergeladen.
+5. **JSON als Base64** kodieren:
+   ```bash
+   base64 -i dein-service-account-key.json | tr -d '\n'
+   ```
+   Den Output kopieren.
+
+### Ordner freigeben
+
+6. **Kundenordner** in Google Drive (oder einem Shared Drive) anlegen. Jeder Kundenordner hat den Namen der Person (z. B. "Kurt Schauer") oder des Unternehmens.
+7. Den **übergeordneten Ordner** (oder das Shared Drive) mit der E-Mail-Adresse des Service Accounts teilen (die steht in der JSON-Datei unter `client_email`). Berechtigung: **Editor**.
+8. **Ordner-ID** finden: Den übergeordneten Ordner in Drive öffnen → die ID ist der letzte Teil der URL: `https://drive.google.com/drive/folders/DIESE_ID_HIER`.
+
+### Vercel Env-Variablen
+
+9. Bei Vercel unter Environment Variables setzen:
+   - `GOOGLE_SERVICE_ACCOUNT_KEY` = der Base64-String aus Schritt 5 *(Pflicht für Drive)*
+   - `GOOGLE_DRIVE_PARENT_FOLDER_ID` = die Ordner-ID aus Schritt 8 *(optional, aber empfohlen — damit werden fehlende Kundenordner automatisch angelegt)*
+10. Neu deployen. Im Ergebnis erscheint der Button "In Drive-Ordner laden".
+
+> Ohne `GOOGLE_SERVICE_ACCOUNT_KEY` ist der Drive-Button ausgeblendet. Die App funktioniert ohne Drive wie gewohnt.
+
+---
+
+## Schritt 6 (optional) — Supabase zum Speichern
 
 1. Auf https://supabase.com ein Projekt anlegen.
 2. **SQL Editor** öffnen → den Inhalt von `supabase/schema.sql` einfügen → ausführen.
