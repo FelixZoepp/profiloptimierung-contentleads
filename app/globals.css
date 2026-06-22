@@ -421,6 +421,28 @@ textarea { resize: vertical; line-height: 1.6; }
   background: #fff;
 }
 
+/* Image feedback */
+.img-feedback-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.img-feedback-input {
+  flex: 1;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--paper);
+}
+.img-feedback-input:focus {
+  outline: none;
+  border-color: var(--terra);
+  background: #fff;
+}
+
 .foot {
   margin-top: 40px;
   text-align: center;

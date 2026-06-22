@@ -85,10 +85,16 @@ Pro Post: Nummer, Säule, Thema, Hook.
 
 ## Outreach-Strategie
 Permission-Based: ohne Notiz vernetzen, dann erlaubnisbasiert.
-**A) Vernetzungs-Notiz** (leer bei Permission-Based)
-**B) Erstnachricht** (Erlaubnis einholen)
-**C) Mehrwert-Nachricht**
-**D) CTA-Nachricht**
+WICHTIGE OUTREACH-REGELN:
+- NIEMALS "Danke dass Sie meine Vernetzungsanfrage angenommen haben" oder ähnliche unterwürfige Eröffnungen. Das positioniert dich UNTER dem Lead.
+- IMMER auf Augenhöhe kommunizieren — als gleichwertiger Experte, nicht als Bittsteller.
+- Einstieg mit Relevanz/Kontext ("Mir ist aufgefallen, dass..." / "Ich arbeite gerade mit Firmen wie Ihrer..."), nicht mit Dankbarkeit für die Vernetzung.
+- Kurz, direkt, werthaltig. Kein Smalltalk-Filler.
+
+**A) Vernetzungs-Notiz** (LEER — ohne Notiz vernetzen, höhere Annahmequote)
+**B) Erstnachricht** (Auf Augenhöhe, Relevanz zeigen, um Erlaubnis fragen)
+**C) Mehrwert-Nachricht** (konkreten Wert liefern)
+**D) CTA-Nachricht** (zum Haupt-CTA führen, 1x nachfassen max.)
 
 ## Bild-Texte
 Exakte Texte für jede Bild-Kategorie. Diese werden 1:1 in die Bilder eingesetzt.

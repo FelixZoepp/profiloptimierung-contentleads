@@ -23,6 +23,8 @@ export async function POST(req: Request) {
       photoBase64,
       personName,
       companyName,
+      feedback,
+      existingImageB64,
     } = body as {
       type: string;
       colors: { primary: string; secondary: string };
@@ -30,6 +32,8 @@ export async function POST(req: Request) {
       photoBase64?: string;
       personName?: string;
       companyName?: string;
+      feedback?: string;
+      existingImageB64?: string;
     };
 
     if (!type) {
@@ -37,7 +41,7 @@ export async function POST(req: Request) {
     }
 
     // Prompt bauen
-    const prompt = buildImagePrompt({
+    let prompt = buildImagePrompt({
       type,
       colors: colors || { primary: "#1a2238", secondary: "#c2613f" },
       texts: texts || {},
@@ -46,11 +50,16 @@ export async function POST(req: Request) {
       hasPhoto: Boolean(photoBase64),
     });
 
-    // Bild generieren (OpenAI Edit mit Template)
+    // Feedback-basierte Anpassung
+    if (feedback) {
+      prompt += `\n\nADDITIONAL ADJUSTMENT: ${feedback}. Keep everything else the same but apply this change.`;
+    }
+
+    // Bild generieren — bei Feedback das bestehende Bild als Vorlage nutzen
     const raw = await generateLinkedInImage({
       type,
       prompt,
-      photoBase64,
+      photoBase64: existingImageB64 || photoBase64,
     });
 
     // Post-Processing: Crop + Resize auf LinkedIn-Maße

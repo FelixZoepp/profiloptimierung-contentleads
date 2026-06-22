@@ -229,8 +229,8 @@ export default function Home() {
     }
   }
 
-  /* ── Einzelbild generieren ────────────────────────────────── */
-  async function generateImage(imgKey: string) {
+  /* ── Einzelbild generieren (optional mit Feedback) ─────────── */
+  async function generateImage(imgKey: string, feedback?: string) {
     const colors = extractColors(output);
     const allTexts = extractImageTexts(output);
     const baseType = imgKey.replace(/-\d+$/, "");
@@ -240,17 +240,28 @@ export default function Home() {
     setImgErrors((prev) => ({ ...prev, [imgKey]: "" }));
 
     try {
+      // Bei Feedback: bestehendes Bild als Vorlage mitschicken
+      const existingImage = images[imgKey];
+      const payload: Record<string, any> = {
+        type: baseType,
+        colors,
+        texts,
+        photoBase64: photo?.b64,
+        personName,
+        companyName,
+      };
+
+      if (feedback) {
+        payload.feedback = feedback;
+        if (existingImage) {
+          payload.existingImageB64 = existingImage.b64;
+        }
+      }
+
       const res = await fetch("/api/images", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: baseType,
-          colors,
-          texts,
-          photoBase64: photo?.b64,
-          personName,
-          companyName,
-        }),
+        body: JSON.stringify(payload),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Fehler.");
@@ -354,10 +365,21 @@ export default function Home() {
     setDriveError("");
     setDriveResult(null);
     try {
+      // Alle generierten Bilder sammeln
+      const imageList = Object.entries(images).map(([key, img]) => ({
+        key,
+        b64: img.b64,
+      }));
+
       const res = await fetch("/api/drive", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ personName, companyName, result: output }),
+        body: JSON.stringify({
+          personName,
+          companyName,
+          result: output,
+          images: imageList,
+        }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Drive-Upload fehlgeschlagen.");
@@ -551,6 +573,7 @@ export default function Home() {
                 loading={imgLoading[imgType.key] || false}
                 error={imgErrors[imgType.key] || ""}
                 onGenerate={() => generateImage(imgType.key)}
+                onRegenerate={(feedback) => generateImage(imgType.key, feedback)}
                 personName={personName}
               />
             ))}
@@ -634,7 +657,7 @@ function TextBlock({ section, onCopy }: { section: Section; onCopy: (t: string, 
   );
 }
 
-/* ── Bild-Karte Komponente ─────────────────────────────────── */
+/* ── Bild-Karte Komponente (mit Feedback-Chat) ────────────── */
 function ImageCard({
   imgKey,
   label,
@@ -645,6 +668,7 @@ function ImageCard({
   loading,
   error,
   onGenerate,
+  onRegenerate,
   personName,
 }: {
   imgKey: string;
@@ -656,8 +680,10 @@ function ImageCard({
   loading: boolean;
   error: string;
   onGenerate: () => void;
+  onRegenerate: (feedback: string) => void;
   personName: string;
 }) {
+  const [feedback, setFeedback] = useState("");
   const disabled = loading || (needsPhoto && !hasPhoto);
   const dataUrl = image ? "data:image/png;base64," + image.b64 : "";
 
@@ -685,6 +711,29 @@ function ImageCard({
           <a className="dl" href={dataUrl} download={`${personName || "profil"}_${imgKey}.png`}>
             PNG herunterladen
           </a>
+          <div className="img-feedback-row">
+            <input
+              className="img-feedback-input"
+              value={feedback}
+              onChange={(e) => setFeedback(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && feedback.trim()) {
+                  e.preventDefault();
+                  onRegenerate(feedback.trim());
+                  setFeedback("");
+                }
+              }}
+              placeholder="Feedback: z.B. 'wärmere Farben' oder 'Text größer'"
+              disabled={loading}
+            />
+            <button
+              className="go-sm"
+              onClick={() => { onRegenerate(feedback.trim()); setFeedback(""); }}
+              disabled={loading || !feedback.trim()}
+            >
+              Anpassen
+            </button>
+          </div>
         </div>
       )}
     </div>
