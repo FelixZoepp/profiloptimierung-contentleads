@@ -133,13 +133,24 @@ export async function uploadCustomerFolder(
     throw new Error("GOOGLE_DRIVE_PARENT_FOLDER_ID fehlt — wird benötigt für die Ordnerstruktur.");
   }
 
-  // Kundenordner finden oder erstellen
-  let mainFolderId = await findFolder(drive, searchName, parentFolderId);
+  // Ordnername: "<Name> - Profiloptimierung x Content-Leads"
+  const folderDisplayName = `${searchName} - Profiloptimierung x Content-Leads`;
+
+  // Kundenordner suchen (exakter Name oder nur Kundenname)
+  let mainFolderId = await findFolder(drive, folderDisplayName, parentFolderId);
+  if (!mainFolderId) {
+    // Fallback: nach altem Namensformat suchen
+    mainFolderId = await findFolder(drive, searchName, parentFolderId);
+  }
   if (!mainFolderId && input.personName && input.companyName) {
-    mainFolderId = await findFolder(drive, input.companyName, parentFolderId);
+    const altName = `${input.companyName} - Profiloptimierung x Content-Leads`;
+    mainFolderId = await findFolder(drive, altName, parentFolderId);
+    if (!mainFolderId) {
+      mainFolderId = await findFolder(drive, input.companyName, parentFolderId);
+    }
   }
   if (!mainFolderId) {
-    mainFolderId = await createFolder(drive, searchName, parentFolderId);
+    mainFolderId = await createFolder(drive, folderDisplayName, parentFolderId);
   }
 
   let fileCount = 0;
@@ -181,7 +192,7 @@ export async function uploadCustomerFolder(
 
   const folderLink = `https://drive.google.com/drive/folders/${mainFolderId}`;
 
-  return { folderLink, folderName: searchName, fileCount };
+  return { folderLink, folderName: folderDisplayName, fileCount };
 }
 
 // Legacy-Funktion für Abwärtskompatibilität
