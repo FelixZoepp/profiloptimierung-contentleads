@@ -47,15 +47,15 @@ ONLY change the background: replace it with a clean, smooth gradient from white 
 No text in the image.`;
 
     case "personen-banner":
-      return `Edit this LinkedIn banner design. Keep the same overall composition and layout style.
-${hasPhoto ? "Keep the cut-out person on the right side of the banner." : "Leave the right side with a clean branded area."}
-Replace all brand colours with primary ${c1} and secondary/CTA colour ${c2}.
-On the left side, display this headline text in large, bold font: "${texts.headline || ""}"
-Below it in smaller text: "${texts.subline || ""}"
-Add a prominent CTA button in ${c2} colour with text: "${texts.cta || ""}"
-The button should be placed center-left, below the subline.
-${hasPhoto ? `The person is ${personName || "the client"} from ${companyName || "the company"}.` : ""}
-Keep the background relevant to the industry. Professional, clean design.`;
+      return `Edit this LinkedIn banner design into a new banner for ${companyName || "the company"}.
+LAYOUT (strictly follow this):
+- RIGHT SIDE (rightmost 25-30%): ${hasPhoto ? `The person from the uploaded photo MUST be clearly visible here, cut out from chest/shoulders up, facing slightly left. KEEP THE PERSON'S FACE 100% IDENTICAL — do not alter any facial features.` : "Clean branded area with subtle graphic element."}
+- LEFT SIDE (leftmost 30%): Industry-relevant background imagery that matches ${companyName || "the company"}'s field (e.g. office, digital, team). This should be a real-looking scene, slightly blurred or faded.
+- CENTER: The headline text in large, bold font: "${texts.headline || ""}"
+  Below it in smaller text: "${texts.subline || ""}"
+  Below that: a prominent CTA button in ${c2} colour with text: "${texts.cta || ""}"
+COLORS: Primary ${c1}, secondary/accent ${c2}. Use these as the dominant brand colors throughout.
+The banner must look professional, modern, and cohesive. The person on the right must be CLEARLY VISIBLE and not cut off.`;
 
     case "firmen-banner":
       return `Edit this company page LinkedIn banner. Keep the same horizontal, very flat layout.
