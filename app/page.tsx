@@ -4,61 +4,211 @@ import { useState, useRef } from "react";
 import { splitSections, buildDocument, type Section } from "@/lib/buildDocx";
 import { Packer } from "docx";
 
+/* ── Typen ─────────────────────────────────────────────────── */
 interface ChatMsg {
   role: "user" | "assistant";
   content: string;
 }
 
+interface GeneratedImage {
+  type: string;
+  b64: string;
+  width: number;
+  height: number;
+}
+
+const IMAGE_TYPES = [
+  { key: "profilbild", label: "Profilbild", size: "800×800", needsPhoto: true },
+  { key: "personen-banner", label: "Personen-Banner", size: "1584×396", needsPhoto: true },
+  { key: "firmen-banner", label: "Firmen-Banner", size: "1128×191", needsPhoto: false },
+  { key: "berufserfahrung", label: "Berufserfahrung", size: "1200×627", needsPhoto: false },
+  { key: "serviceleistung-1", label: "Service-Kachel 1", size: "1080×1080", needsPhoto: false },
+  { key: "serviceleistung-2", label: "Service-Kachel 2", size: "1080×1080", needsPhoto: false },
+  { key: "serviceleistung-3", label: "Service-Kachel 3", size: "1080×1080", needsPhoto: false },
+  { key: "serviceleistung-4", label: "Service-Kachel 4", size: "1080×1080", needsPhoto: false },
+  { key: "serviceleistung-5", label: "Service-Kachel 5", size: "1080×1080", needsPhoto: false },
+  { key: "im-fokus-1", label: "Im Fokus 1", size: "1200×627", needsPhoto: false },
+  { key: "im-fokus-2", label: "Im Fokus 2", size: "1200×627", needsPhoto: false },
+  { key: "im-fokus-3", label: "Im Fokus 3", size: "1200×627", needsPhoto: false },
+] as const;
+
 const EXAMPLE_CHIPS = [
   "Headline kürzer",
   "About in Du-Form",
-  "Post 3 ersetzen",
-  "Outreach-Notiz persönlicher",
-  "Motiv 2 ohne Personen, wärmer",
+  "CTA ändern",
+  "Outreach persönlicher",
+  "Kachel-Texte knapper",
 ];
 
+/* ── Hilfsfunktionen ───────────────────────────────────────── */
+function extractColors(output: string): { primary: string; secondary: string } {
+  const pMatch = output.match(/\*\*Primär:\*\*\s*(#[0-9a-fA-F]{6})/);
+  const sMatch = output.match(/\*\*Sekundär:\*\*\s*(#[0-9a-fA-F]{6})/);
+  return {
+    primary: pMatch?.[1] || "#1a2238",
+    secondary: sMatch?.[1] || "#c2613f",
+  };
+}
+
+function extractImageTexts(output: string): Record<string, Record<string, string>> {
+  const result: Record<string, Record<string, string>> = {};
+
+  // Personen-Banner
+  const bannerMatch = output.match(
+    /### Personen-Banner[\s\S]*?\*\*Headline:\*\*\s*(.*?)[\n\r].*?\*\*Subline:\*\*\s*(.*?)[\n\r].*?\*\*CTA-Button:\*\*\s*(.*?)[\n\r]/
+  );
+  if (bannerMatch) {
+    result["personen-banner"] = {
+      headline: bannerMatch[1].trim(),
+      subline: bannerMatch[2].trim(),
+      cta: bannerMatch[3].trim(),
+    };
+  }
+
+  // Firmen-Banner
+  const fMatch = output.match(
+    /### Firmen-Banner[\s\S]*?\*\*Headline:\*\*\s*(.*?)[\n\r].*?\*\*Subline:\*\*\s*(.*?)[\n\r].*?\*\*CTA-Button:\*\*\s*(.*?)[\n\r]/
+  );
+  if (fMatch) {
+    result["firmen-banner"] = {
+      headline: fMatch[1].trim(),
+      subline: fMatch[2].trim(),
+      cta: fMatch[3].trim(),
+    };
+  }
+
+  // Service-Kacheln
+  const kachelMatch = output.match(/### Serviceleistungen-Kacheln([\s\S]*?)(?=###|## )/);
+  if (kachelMatch) {
+    const kText = kachelMatch[1];
+    for (let i = 1; i <= 5; i++) {
+      const m = kText.match(new RegExp(`\\*\\*Kachel ${i}:\\*\\*\\s*(.*?)(?:\\n|$)`));
+      if (m) result[`serviceleistung-${i}`] = { serviceTitle: m[1].trim() };
+    }
+  }
+
+  // Im-Fokus
+  const fokusMatch = output.match(/### Im-Fokus-Bilder([\s\S]*?)(?=###|## )/);
+  if (fokusMatch) {
+    const fText = fokusMatch[1];
+    for (let i = 1; i <= 3; i++) {
+      const m = fText.match(new RegExp(`\\*\\*Bild ${i}:\\*\\*\\s*(.*?)(?:\\n|$)`));
+      if (m) result[`im-fokus-${i}`] = { focusTitle: m[1].trim() };
+    }
+  }
+
+  // Berufserfahrung
+  const beMatch = output.match(
+    /### Berufserfahrung-Bild[\s\S]*?\*\*Headline:\*\*\s*(.*?)[\n\r].*?\*\*Subline:\*\*\s*(.*?)[\n\r](?:.*?\*\*Badge 1:\*\*\s*(.*?)[\n\r])?(?:.*?\*\*Badge 2:\*\*\s*(.*?)[\n\r])?/
+  );
+  if (beMatch) {
+    result["berufserfahrung"] = {
+      headline: beMatch[1]?.trim() || "",
+      subline: beMatch[2]?.trim() || "",
+      badge1: beMatch[3]?.trim() || "",
+      badge2: beMatch[4]?.trim() || "",
+    };
+  }
+
+  return result;
+}
+
+/* ── Hauptkomponente ───────────────────────────────────────── */
 export default function Home() {
+  // Eingaben
   const [personName, setPersonName] = useState("");
   const [companyName, setCompanyName] = useState("");
+  const [websiteUrl, setWebsiteUrl] = useState("");
   const [transcript, setTranscript] = useState("");
+  const [additionalInfo, setAdditionalInfo] = useState("");
+  const [photo, setPhoto] = useState<{ b64: string; name: string } | null>(null);
+
+  // Text-Generierung
   const [output, setOutput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // Bilder
+  const [images, setImages] = useState<Record<string, GeneratedImage>>({});
+  const [imgLoading, setImgLoading] = useState<Record<string, boolean>>({});
+  const [imgErrors, setImgErrors] = useState<Record<string, string>>({});
+  const [allImgLoading, setAllImgLoading] = useState(false);
+
+  // Export
   const [copiedAll, setCopiedAll] = useState(false);
   const [driveLoading, setDriveLoading] = useState(false);
   const [driveResult, setDriveResult] = useState<{ fileLink: string; folderName: string } | null>(null);
   const [driveError, setDriveError] = useState("");
 
-  // Chat state
+  // Chat
   const [chatHistory, setChatHistory] = useState<ChatMsg[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState("");
 
-  // Transkription state
+  // Transkription
   const [transcribing, setTranscribing] = useState(false);
   const [transcribeError, setTranscribeError] = useState("");
 
   const outRef = useRef<HTMLDivElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
+  /* ── Foto-Upload ──────────────────────────────────────────── */
+  function onPhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      setPhoto({ b64: dataUrl.split(",")[1], name: f.name });
+    };
+    reader.readAsDataURL(f);
+  }
+
+  /* ── Audio-Transkription ──────────────────────────────────── */
+  async function transcribeFile(file: File) {
+    setTranscribing(true);
+    setTranscribeError("");
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch("/api/transcribe", { method: "POST", body: form });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Transkription fehlgeschlagen.");
+      setTranscript((prev) => (prev ? prev + "\n\n" + j.transcript : j.transcript));
+    } catch (e: any) {
+      setTranscribeError(e.message);
+    } finally {
+      setTranscribing(false);
+    }
+  }
+
+  /* ── Text generieren ──────────────────────────────────────── */
   async function generate() {
     setError("");
     setOutput("");
+    setImages({});
     setChatHistory([]);
-    setChatError("");
     setDriveResult(null);
     setDriveError("");
-    if (transcript.trim().length < 50) {
-      setError("Bitte füge ein Transkript ein (mindestens ein paar Sätze).");
+
+    if (!personName && !companyName && !websiteUrl) {
+      setError("Bitte mindestens Name, Unternehmen oder Website angeben.");
       return;
     }
+
     setLoading(true);
     try {
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ personName, companyName, transcript }),
+        body: JSON.stringify({
+          personName,
+          companyName,
+          websiteUrl,
+          transcript,
+          additionalInfo,
+        }),
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -73,65 +223,59 @@ export default function Home() {
         outRef.current?.scrollTo({ top: outRef.current.scrollHeight });
       }
     } catch (e: any) {
-      setError(e.message || "Unbekannter Fehler.");
+      setError(e.message);
     } finally {
       setLoading(false);
     }
   }
 
-  function copy(text: string, cb?: () => void) {
-    navigator.clipboard.writeText(text).then(cb);
-  }
+  /* ── Einzelbild generieren ────────────────────────────────── */
+  async function generateImage(imgKey: string) {
+    const colors = extractColors(output);
+    const allTexts = extractImageTexts(output);
+    const baseType = imgKey.replace(/-\d+$/, "");
+    const texts = allTexts[imgKey] || allTexts[baseType] || {};
 
-  async function downloadDocx() {
-    const secs = splitSections(output);
-    const doc = buildDocument(secs, personName, companyName);
-    const blob = await Packer.toBlob(doc);
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${personName || companyName || "Profil"}_LinkedIn-Profil.docx`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
+    setImgLoading((prev) => ({ ...prev, [imgKey]: true }));
+    setImgErrors((prev) => ({ ...prev, [imgKey]: "" }));
 
-  async function saveToDrive() {
-    setDriveLoading(true);
-    setDriveError("");
-    setDriveResult(null);
     try {
-      const res = await fetch("/api/drive", {
+      const res = await fetch("/api/images", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ personName, companyName, result: output }),
+        body: JSON.stringify({
+          type: baseType,
+          colors,
+          texts,
+          photoBase64: photo?.b64,
+          personName,
+          companyName,
+        }),
       });
       const j = await res.json();
-      if (!res.ok) throw new Error(j.error || "Drive-Upload fehlgeschlagen.");
-      setDriveResult({ fileLink: j.fileLink, folderName: j.folderName });
+      if (!res.ok) throw new Error(j.error || "Fehler.");
+      setImages((prev) => ({
+        ...prev,
+        [imgKey]: { type: imgKey, b64: j.b64, width: j.width, height: j.height },
+      }));
     } catch (e: any) {
-      setDriveError(e.message || "Unbekannter Fehler.");
+      setImgErrors((prev) => ({ ...prev, [imgKey]: e.message }));
     } finally {
-      setDriveLoading(false);
+      setImgLoading((prev) => ({ ...prev, [imgKey]: false }));
     }
   }
 
-  async function transcribeFile(file: File) {
-    setTranscribing(true);
-    setTranscribeError("");
-    try {
-      const form = new FormData();
-      form.append("file", file);
-      const res = await fetch("/api/transcribe", { method: "POST", body: form });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error || "Transkription fehlgeschlagen.");
-      setTranscript((prev) => (prev ? prev + "\n\n" + j.transcript : j.transcript));
-    } catch (e: any) {
-      setTranscribeError(e.message || "Fehler bei der Transkription.");
-    } finally {
-      setTranscribing(false);
+  /* ── Alle Bilder generieren ───────────────────────────────── */
+  async function generateAllImages() {
+    setAllImgLoading(true);
+    for (const img of IMAGE_TYPES) {
+      if (img.needsPhoto && !photo) continue;
+      await generateImage(img.key);
     }
+    setAllImgLoading(false);
   }
 
+  /* ── Chat / Refine ────────────────────────────────────────── */
   async function sendChatMessage(instruction?: string) {
     const msg = instruction || chatInput.trim();
     if (!msg) return;
@@ -166,58 +310,117 @@ export default function Home() {
         if (done) break;
         fullText += decoder.decode(value, { stream: true });
       }
-      // Profil ersetzen und History aktualisieren
       setOutput(fullText);
-      setChatHistory([
-        ...newHistory,
-        { role: "assistant", content: msg },
-      ]);
+      setChatHistory([...newHistory, { role: "assistant", content: msg }]);
       setDriveResult(null);
       setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
     } catch (e: any) {
-      setChatError(e.message || "Unbekannter Fehler.");
+      setChatError(e.message);
     } finally {
       setChatLoading(false);
     }
   }
 
+  /* ── Export-Funktionen ────────────────────────────────────── */
+  function copy(text: string, cb?: () => void) {
+    navigator.clipboard.writeText(text).then(cb);
+  }
+
+  async function downloadDocx() {
+    const secs = splitSections(output);
+    const doc = buildDocument(secs, personName, companyName);
+    const blob = await Packer.toBlob(doc);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Profil-und-Content_${personName || companyName || "Profil"}.docx`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function downloadAllImages() {
+    for (const [key, img] of Object.entries(images)) {
+      const url = "data:image/png;base64," + img.b64;
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${personName || "profil"}_${key}.png`;
+      a.click();
+      await new Promise((r) => setTimeout(r, 200));
+    }
+  }
+
+  async function saveToDrive() {
+    setDriveLoading(true);
+    setDriveError("");
+    setDriveResult(null);
+    try {
+      const res = await fetch("/api/drive", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ personName, companyName, result: output }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Drive-Upload fehlgeschlagen.");
+      setDriveResult({ fileLink: j.fileLink, folderName: j.folderName });
+    } catch (e: any) {
+      setDriveError(e.message);
+    } finally {
+      setDriveLoading(false);
+    }
+  }
+
   const sections = splitSections(output);
-  const showChat = Boolean(output && !loading);
+  const showResults = Boolean(output && !loading);
+  const colors = output ? extractColors(output) : null;
 
   return (
     <main className="wrap">
+      {/* ── Header ──────────────────────────────────────────── */}
       <header className="head">
         <div className="brandmark">CL</div>
         <div>
           <h1>Profil-Generator</h1>
-          <p className="sub">Content-Leads · Transkript rein, Profil raus</p>
+          <p className="sub">Content-Leads · Texte + Bilder + Dokument</p>
         </div>
       </header>
 
+      {/* ── Eingabe-Formular ────────────────────────────────── */}
       <section className="card">
         <div className="row">
           <label>
             <span>Name der Person</span>
-            <input
-              value={personName}
-              onChange={(e) => setPersonName(e.target.value)}
-              placeholder="z. B. Kurt Schauer"
-            />
+            <input value={personName} onChange={(e) => setPersonName(e.target.value)} placeholder="z. B. Kurt Schauer" />
           </label>
           <label>
             <span>Unternehmen</span>
-            <input
-              value={companyName}
-              onChange={(e) => setCompanyName(e.target.value)}
-              placeholder="z. B. KAOS Werbeagentur"
-            />
+            <input value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="z. B. KAOS Werbeagentur" />
           </label>
         </div>
+
+        <div className="row" style={{ marginTop: 16 }}>
+          <label>
+            <span>Website</span>
+            <input value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} placeholder="https://www.beispiel.de" />
+          </label>
+          <label>
+            <span>Kundenfoto (für Profilbild + Banner)</span>
+            <div className="photo-upload">
+              <label className="upload-label">
+                {photo ? `${photo.name}` : "Foto hochladen"}
+                <input type="file" accept="image/*" hidden onChange={onPhotoUpload} />
+              </label>
+              {photo && (
+                <button className="link-x" onClick={() => setPhoto(null)}>entfernen</button>
+              )}
+            </div>
+          </label>
+        </div>
+
         <div className="block">
           <div className="transcript-head">
-            <span className="field-label">Onboarding-Transkript</span>
+            <span className="field-label">Onboarding-Transkript (optional)</span>
             <label className="upload-label">
-              {transcribing ? "Transkribiere …" : "Audio/Video hochladen"}
+              {transcribing ? "Transkribiere ..." : "Audio/Video hochladen"}
               <input
                 type="file"
                 accept="audio/*,video/*"
@@ -235,80 +438,135 @@ export default function Home() {
           <textarea
             value={transcript}
             onChange={(e) => setTranscript(e.target.value)}
-            placeholder="Transkript hier einfügen oder Audio/Video hochladen …"
-            rows={10}
+            placeholder="Transkript hier einfügen oder Audio/Video hochladen ..."
+            rows={6}
           />
         </div>
 
+        <div className="block">
+          <label>
+            <span>Zusätzliche Infos (optional)</span>
+            <textarea
+              value={additionalInfo}
+              onChange={(e) => setAdditionalInfo(e.target.value)}
+              placeholder="Besondere Wünsche, Positionierung, Zielgruppe, Markenfarben ..."
+              rows={3}
+            />
+          </label>
+        </div>
+
         <button className="go" onClick={generate} disabled={loading}>
-          {loading ? "Generiere … (Recherche + Texte, ~1–2 Min)" : "Profil generieren"}
+          {loading ? "Generiere ... (Recherche + Texte, ~1-2 Min)" : "Profil generieren"}
         </button>
         {error && <p className="err">{error}</p>}
       </section>
 
+      {/* ── Ergebnis: Texte ─────────────────────────────────── */}
       {(output || loading) && (
         <section className="result">
           <div className="result-head">
-            <h2>Ergebnis</h2>
-            {output && !loading && (
+            <h2>Texte</h2>
+            {showResults && (
               <div className="result-actions">
                 <button
                   className="ghost"
-                  onClick={() =>
-                    copy(output, () => {
-                      setCopiedAll(true);
-                      setTimeout(() => setCopiedAll(false), 1500);
-                    })
-                  }
+                  onClick={() => copy(output, () => { setCopiedAll(true); setTimeout(() => setCopiedAll(false), 1500); })}
                 >
-                  {copiedAll ? "✓ Kopiert" : "Alles kopieren"}
+                  {copiedAll ? "Kopiert" : "Alles kopieren"}
                 </button>
-                <button className="ghost" onClick={downloadDocx}>
-                  Als Word laden
-                </button>
-                <button
-                  className="ghost ghost-drive"
-                  onClick={saveToDrive}
-                  disabled={driveLoading}
-                >
-                  {driveLoading ? "Lade hoch …" : "In Drive-Ordner laden"}
+                <button className="ghost" onClick={downloadDocx}>Word-Dokument</button>
+                <button className="ghost ghost-drive" onClick={saveToDrive} disabled={driveLoading}>
+                  {driveLoading ? "Lade hoch ..." : "In Drive speichern"}
                 </button>
               </div>
             )}
           </div>
+
           {driveResult && (
             <p className="drive-ok">
               Gespeichert in <strong>{driveResult.folderName}</strong> —{" "}
               <a href={driveResult.fileLink} target="_blank" rel="noopener noreferrer">
-                Datei in Drive öffnen
+                In Drive öffnen
               </a>
             </p>
           )}
           {driveError && <p className="err">{driveError}</p>}
 
-          {loading && !output && <p className="muted">Recherchiere das Unternehmen …</p>}
+          {loading && !output && <p className="muted">Recherchiere das Unternehmen ...</p>}
+
+          {colors && showResults && (
+            <div className="color-preview">
+              <div className="color-dot" style={{ background: colors.primary }} />
+              <span>{colors.primary}</span>
+              <div className="color-dot" style={{ background: colors.secondary }} />
+              <span>{colors.secondary}</span>
+            </div>
+          )}
 
           <div ref={outRef} className="sections">
             {sections.map((s, i) => (
-              <Block key={i} section={s} onCopy={copy} />
+              <TextBlock key={i} section={s} onCopy={copy} />
             ))}
           </div>
         </section>
       )}
 
-      {showChat && (
+      {/* ── Ergebnis: Bilder ────────────────────────────────── */}
+      {showResults && (
+        <section className="result">
+          <div className="result-head">
+            <h2>Bilder</h2>
+            <div className="result-actions">
+              <button
+                className="go-sm"
+                onClick={generateAllImages}
+                disabled={allImgLoading}
+              >
+                {allImgLoading ? "Generiere alle ..." : "Alle Bilder generieren"}
+              </button>
+              {Object.keys(images).length > 0 && (
+                <button className="ghost" onClick={downloadAllImages}>
+                  Alle herunterladen
+                </button>
+              )}
+            </div>
+          </div>
+
+          {!photo && (
+            <p className="hint" style={{ marginBottom: 14 }}>
+              Lade ein Kundenfoto hoch, um Profilbild und Banner mit echtem Gesicht zu generieren.
+            </p>
+          )}
+
+          <div className="image-grid">
+            {IMAGE_TYPES.map((imgType) => (
+              <ImageCard
+                key={imgType.key}
+                imgKey={imgType.key}
+                label={imgType.label}
+                size={imgType.size}
+                needsPhoto={imgType.needsPhoto}
+                hasPhoto={Boolean(photo)}
+                image={images[imgType.key]}
+                loading={imgLoading[imgType.key] || false}
+                error={imgErrors[imgType.key] || ""}
+                onGenerate={() => generateImage(imgType.key)}
+                personName={personName}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* ── Chat ────────────────────────────────────────────── */}
+      {showResults && (
         <section className="chat-panel">
           <h3 className="chat-title">Änderungen per Chat</h3>
 
           {chatHistory.length === 0 && (
             <div className="chat-chips">
               {EXAMPLE_CHIPS.map((chip) => (
-                <button
-                  key={chip}
-                  className="chip"
-                  onClick={() => sendChatMessage(chip)}
-                  disabled={chatLoading}
-                >
+                <button key={chip} className="chip" onClick={() => sendChatMessage(chip)} disabled={chatLoading}>
                   {chip}
                 </button>
               ))}
@@ -319,14 +577,14 @@ export default function Home() {
             <div className="chat-messages">
               {chatHistory.map((m, i) => (
                 <div key={i} className={`chat-msg chat-msg-${m.role}`}>
-                  {m.role === "user" ? m.content : `✓ "${m.content}" aktualisiert`}
+                  {m.role === "user" ? m.content : `"${m.content}" aktualisiert`}
                 </div>
               ))}
               <div ref={chatEndRef} />
             </div>
           )}
 
-          {chatLoading && <p className="muted">Überarbeite Profil …</p>}
+          {chatLoading && <p className="muted">Überarbeite Profil ...</p>}
           {chatError && <p className="err">{chatError}</p>}
 
           <div className="chat-input-row">
@@ -343,11 +601,7 @@ export default function Home() {
               placeholder='z. B. "Headline kürzer" oder "About in Du-Form"'
               disabled={chatLoading}
             />
-            <button
-              className="go-sm"
-              onClick={() => sendChatMessage()}
-              disabled={chatLoading || !chatInput.trim()}
-            >
+            <button className="go-sm" onClick={() => sendChatMessage()} disabled={chatLoading || !chatInput.trim()}>
               Senden
             </button>
           </div>
@@ -355,57 +609,24 @@ export default function Home() {
       )}
 
       <footer className="foot">
-        Erzeugt mit Claude (Text) + GPT-Image (Motive) · alle Texte vor Verwendung prüfen ·
-        Platzhalter [..] ersetzen · Banner & finaler Text entstehen in Canva
+        Content-Leads Profil-Generator · Claude (Texte) + GPT-Image (Bilder) · alle Texte und Bilder vor Verwendung prüfen
       </footer>
     </main>
   );
 }
 
-// Erkennt den Bild-Motive-Block und zieht die einzelnen Prompts raus
-function isImageSection(title: string) {
-  return /bild-?motive|bild-?prompt/i.test(title);
-}
-function parseImagePrompts(body: string): { ratio: "square" | "landscape"; prompt: string }[] {
-  const lines = body.split(/\n(?=\*\*Motiv)/g);
-  const out: { ratio: "square" | "landscape"; prompt: string }[] = [];
-  for (const l of lines) {
-    const m = l.match(/\*\*Motiv[^:]*:\*\*\s*([\s\S]*)/);
-    if (!m) continue;
-    const ratio = /3:2|landscape|quer|hintergrund/i.test(l) ? "landscape" : "square";
-    const prompt = m[1].trim();
-    if (prompt.length > 5) out.push({ ratio, prompt });
-  }
-  return out;
-}
-
-function Block({
-  section,
-  onCopy,
-}: {
-  section: Section;
-  onCopy: (t: string, cb?: () => void) => void;
-}) {
+/* ── Text-Block Komponente ─────────────────────────────────── */
+function TextBlock({ section, onCopy }: { section: Section; onCopy: (t: string, cb?: () => void) => void }) {
   const [copied, setCopied] = useState(false);
-
-  if (isImageSection(section.title)) {
-    return <ImageBlock section={section} onCopy={onCopy} />;
-  }
-
   return (
     <div className="sec">
       <div className="sec-head">
         <h3>{section.title || "Profil"}</h3>
         <button
           className="copy"
-          onClick={() =>
-            onCopy(section.body, () => {
-              setCopied(true);
-              setTimeout(() => setCopied(false), 1200);
-            })
-          }
+          onClick={() => onCopy(section.body, () => { setCopied(true); setTimeout(() => setCopied(false), 1200); })}
         >
-          {copied ? "✓" : "Kopieren"}
+          {copied ? "Kopiert" : "Kopieren"}
         </button>
       </div>
       <pre className="sec-body">{section.body}</pre>
@@ -413,193 +634,57 @@ function Block({
   );
 }
 
-function ImageBlock({
-  section,
-  onCopy,
+/* ── Bild-Karte Komponente ─────────────────────────────────── */
+function ImageCard({
+  imgKey,
+  label,
+  size,
+  needsPhoto,
+  hasPhoto,
+  image,
+  loading,
+  error,
+  onGenerate,
+  personName,
 }: {
-  section: Section;
-  onCopy: (t: string, cb?: () => void) => void;
+  imgKey: string;
+  label: string;
+  size: string;
+  needsPhoto: boolean;
+  hasPhoto: boolean;
+  image?: GeneratedImage;
+  loading: boolean;
+  error: string;
+  onGenerate: () => void;
+  personName: string;
 }) {
-  const prompts = parseImagePrompts(section.body);
-  return (
-    <div className="sec">
-      <div className="sec-head">
-        <h3>{section.title}</h3>
-        <span className="hint">Kachel-/Hintergrund-Motive · Banner → Canva</span>
-      </div>
-      <div className="sec-body">
-        {prompts.length === 0 && <pre>{section.body}</pre>}
-        {prompts.map((p, i) => (
-          <ImagePrompt key={i} prompt={p.prompt} ratio={p.ratio} index={i + 1} onCopy={onCopy} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function ImagePrompt({
-  prompt,
-  ratio,
-  index,
-  onCopy,
-}: {
-  prompt: string;
-  ratio: "square" | "landscape";
-  index: number;
-  onCopy: (t: string, cb?: () => void) => void;
-}) {
-  const [img, setImg] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
-  const [note, setNote] = useState("");
-  const [tpl, setTpl] = useState<{ b64: string; w: number; h: number; name: string } | null>(null);
-
-  // Bild-Anpassung per Text
-  const [editText, setEditText] = useState("");
-  const [editBusy, setEditBusy] = useState(false);
-  const [editErr, setEditErr] = useState("");
-  const imgRef = useRef<HTMLImageElement>(null);
-
-  function onFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      const im = new Image();
-      im.onload = () => {
-        setTpl({
-          b64: dataUrl.split(",")[1],
-          w: im.naturalWidth,
-          h: im.naturalHeight,
-          name: f.name,
-        });
-      };
-      im.src = dataUrl;
-    };
-    reader.readAsDataURL(f);
-  }
-
-  async function run() {
-    setBusy(true);
-    setErr("");
-    setNote("");
-    try {
-      const payload: any = { prompt, ratio };
-      if (tpl) {
-        payload.imageBase64 = tpl.b64;
-        payload.width = tpl.w;
-        payload.height = tpl.h;
-      }
-      const res = await fetch("/api/images", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error || "Fehler.");
-      setImg("data:image/png;base64," + j.b64);
-      if (tpl && j.size) {
-        setNote(
-          `Ausgabe ${j.size}` +
-            (j.clamped ? " — Format auf max. 3:1 begrenzt (für 4:1-Banner in Canva zuschneiden)." : " — Format der Vorlage erhalten.")
-        );
-      }
-    } catch (e: any) {
-      setErr(e.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function editImage() {
-    if (!editText.trim() || !img) return;
-    setEditBusy(true);
-    setEditErr("");
-    try {
-      // Base64 aus dem data-URL extrahieren
-      const b64 = img.split(",")[1];
-      // Natürliche Maße des aktuellen Bildes auslesen
-      const w = imgRef.current?.naturalWidth || 1024;
-      const h = imgRef.current?.naturalHeight || 1024;
-
-      const res = await fetch("/api/images", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: editText.trim(),
-          imageBase64: b64,
-          width: w,
-          height: h,
-        }),
-      });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error || "Fehler.");
-      setImg("data:image/png;base64," + j.b64);
-      setEditText("");
-      if (j.size) {
-        setNote(`Angepasst (${j.size})${j.clamped ? " — Format auf max. 3:1 begrenzt." : ""}`);
-      }
-    } catch (e: any) {
-      setEditErr(e.message);
-    } finally {
-      setEditBusy(false);
-    }
-  }
+  const disabled = loading || (needsPhoto && !hasPhoto);
+  const dataUrl = image ? "data:image/png;base64," + image.b64 : "";
 
   return (
-    <div className="imgrow">
-      <div className="imgmeta">
-        <span className="tag">{ratio === "landscape" ? "3:2 Hintergrund" : "1:1 Kachel"}</span>
-        <p>{prompt}</p>
-
-        <div className="tpl">
-          <label className="tpl-label">
-            {tpl ? `Vorlage: ${tpl.name} (${tpl.w}×${tpl.h})` : "Optional: Vorlage hochladen → behält Format & Stil"}
-            <input type="file" accept="image/*" onChange={onFile} hidden />
-          </label>
-          {tpl && (
-            <button className="link-x" onClick={() => setTpl(null)}>entfernen</button>
-          )}
+    <div className="img-card">
+      <div className="img-card-head">
+        <div>
+          <strong>{label}</strong>
+          <span className="img-size">{size}</span>
         </div>
-
-        <div className="imgbtns">
-          <button className="copy" onClick={() => onCopy(prompt)}>Prompt kopieren</button>
-          <button className="go-sm" onClick={run} disabled={busy}>
-            {busy ? "Generiere …" : img ? "Neu generieren" : tpl ? "Aus Vorlage generieren" : "Mit GPT generieren"}
-          </button>
-        </div>
-        {note && <p className="note">{note}</p>}
-        {err && <p className="err">{err}</p>}
+        <button className="go-sm" onClick={onGenerate} disabled={disabled}>
+          {loading ? "..." : image ? "Neu" : "Generieren"}
+        </button>
       </div>
-      {img && (
-        <div className="imgout">
-          <img ref={imgRef} src={img} alt={`Motiv ${index}`} />
-          <a className="dl" href={img} download={`motiv-${index}.png`}>PNG herunterladen</a>
 
-          <div className="img-edit-row">
-            <input
-              className="img-edit-input"
-              value={editText}
-              onChange={(e) => setEditText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  editImage();
-                }
-              }}
-              placeholder="Änderung beschreiben …"
-              disabled={editBusy}
-            />
-            <button
-              className="go-sm"
-              onClick={editImage}
-              disabled={editBusy || !editText.trim()}
-            >
-              {editBusy ? "Anpassen …" : "Bild anpassen"}
-            </button>
-          </div>
-          {editErr && <p className="err">{editErr}</p>}
+      {needsPhoto && !hasPhoto && (
+        <p className="hint">Kundenfoto erforderlich</p>
+      )}
+
+      {error && <p className="err">{error}</p>}
+
+      {image && (
+        <div className="img-card-preview">
+          <img src={dataUrl} alt={label} />
+          <a className="dl" href={dataUrl} download={`${personName || "profil"}_${imgKey}.png`}>
+            PNG herunterladen
+          </a>
         </div>
       )}
     </div>

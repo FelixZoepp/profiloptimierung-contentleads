@@ -3,31 +3,31 @@ import Anthropic from "@anthropic-ai/sdk";
 import { SYSTEM_PROMPT, buildUserMessage } from "@/lib/systemPrompt";
 import { saveGeneration } from "@/lib/supabase";
 
-export const maxDuration = 300; // bis zu 5 Min (Recherche + langer Text)
+export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 const MODEL = process.env.CLAUDE_MODEL || "claude-sonnet-4-6";
 
 export async function POST(req: Request) {
   try {
-    const { personName, companyName, transcript } = await req.json();
+    const { personName, companyName, websiteUrl, transcript, additionalInfo } =
+      await req.json();
 
-    if (!transcript || transcript.trim().length < 50) {
+    if (!personName && !companyName && !websiteUrl) {
       return Response.json(
-        { error: "Bitte ein Transkript einfügen (mindestens ein paar Sätze)." },
+        { error: "Bitte mindestens Name, Unternehmen oder Website angeben." },
         { status: 400 }
       );
     }
     if (!process.env.ANTHROPIC_API_KEY) {
       return Response.json(
-        { error: "ANTHROPIC_API_KEY fehlt. Bitte in den Vercel-Umgebungsvariablen setzen." },
+        { error: "ANTHROPIC_API_KEY fehlt." },
         { status: 500 }
       );
     }
 
     const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-    // Streaming-Antwort an den Browser
     const encoder = new TextEncoder();
     let fullText = "";
 
@@ -36,20 +36,28 @@ export async function POST(req: Request) {
         try {
           const messageStream = anthropic.messages.stream({
             model: MODEL,
-            max_tokens: 8000,
+            max_tokens: 10000,
             system: SYSTEM_PROMPT,
             tools: [
               {
-                // Web-Recherche, damit der Bot die Firma verifizieren kann.
-                // web_search_20260209 = neueste Version (Opus 4.8/4.7/4.6, Sonnet 4.6).
-                // Bei älteren Modellen auf "web_search_20250305" zurückfallen.
-                type: (process.env.WEB_SEARCH_VERSION as any) || "web_search_20260209",
+                type:
+                  (process.env.WEB_SEARCH_VERSION as any) ||
+                  "web_search_20260209",
                 name: "web_search",
-                max_uses: 5,
+                max_uses: 8,
               } as any,
             ],
             messages: [
-              { role: "user", content: buildUserMessage({ personName, companyName, transcript }) },
+              {
+                role: "user",
+                content: buildUserMessage({
+                  personName,
+                  companyName,
+                  websiteUrl,
+                  transcript,
+                  additionalInfo,
+                }),
+              },
             ],
           });
 
@@ -61,16 +69,17 @@ export async function POST(req: Request) {
           await messageStream.finalMessage();
           controller.close();
 
-          // Nach Abschluss optional in Supabase speichern (blockt den Stream nicht)
           saveGeneration({
             person_name: personName || null,
             company_name: companyName || null,
-            transcript,
+            transcript: transcript || websiteUrl || "",
             result: fullText,
             model: MODEL,
           }).catch((e) => console.error("Supabase save failed:", e));
         } catch (err: any) {
-          const msg = "\n\n[FEHLER] " + (err?.message || "Unbekannter Fehler bei der Generierung.");
+          const msg =
+            "\n\n[FEHLER] " +
+            (err?.message || "Unbekannter Fehler bei der Generierung.");
           controller.enqueue(encoder.encode(msg));
           controller.close();
         }
