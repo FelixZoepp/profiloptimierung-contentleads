@@ -128,7 +128,7 @@ export async function generateLinkedInImage(opts: {
       prompt,
       size: size as any,
       quality: "high",
-      input_fidelity: "high",
+      // input_fidelity: "high", // nicht bei allen Accounts verfügbar
       n: 1,
     } as any);
 
@@ -172,7 +172,7 @@ export async function generateLinkedInImage(opts: {
     prompt,
     size: size as any,
     quality: "high",
-    input_fidelity: "high",
+    // input_fidelity: "high", // nicht bei allen Accounts verfügbar
     n: 1,
   } as any);
 
