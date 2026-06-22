@@ -41,10 +41,9 @@ export function buildImagePrompt(opts: {
 
   switch (type) {
     case "profilbild":
-      return `Edit this portrait photo into a professional LinkedIn profile picture.
-Keep the person's face exactly as in the original — do not alter facial features, skin tone, or expression.
-Clean, slightly blurred background with a smooth gradient from white to ${c1}.
-Head and shoulders centred, friendly professional lighting. Square crop.
+      return `STRICT IDENTITY PRESERVATION: Edit ONLY the background of this portrait photo.
+The person in the photo must remain COMPLETELY UNCHANGED — same face, same expression, same pose, same angle, same hair, same clothing, same skin tone, same lighting on the face. Do NOT alter, reposition, reshape, or re-render ANY part of the person's body or face. Do NOT change the person's pose or head angle. The person must be 100% recognizable as the exact same person in the original photo.
+ONLY change the background: replace it with a clean, smooth gradient from white (top-left) to ${c1} (bottom-right). Keep the original framing (head and shoulders). Square crop.
 No text in the image.`;
 
     case "personen-banner":
